@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paranoia Avançada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Inter:wght@300;400;700&display=swap');
+        
+        body {
+            background-color: #0a0a0a;
+            color: #e5e5e5;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .title-font {
+            font-family: 'Creepster', cursive;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-danger:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(220, 38, 38, 0.4);
+        }
+
+        .pass-device-screen {
+            background: radial-gradient(circle, #1a1a1a 0%, #000000 100%);
+        }
+
+        @keyframes fadeInSlow {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-fade-in-slow {
+            animation: fadeInSlow 1.5s forwards;
+        }
+
+        .hp-indicator {
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+            color: #ef4444;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .flashback-item {
+            border-left: 2px solid #7f1d1d;
+            padding-left: 1rem;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeInSlow 0.8s forwards;
+        }
+
+        .vote-count-anim {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #ef4444;
+            animation: countUp 2s ease-out;
+        }
+
+        @keyframes countUp {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-2xl"></div>
+
+    <script>
+        const state = {
+            screen: 'MENU',
+            players: [],
+            currentStepPlayerIndex: 0,
+            roundNumber: 1,
+            questions: [],
+            assignedQuestions: [],
+            duplicateTargetId: null,
+            originalTargetId: null,
+            wasTransferred: false,
+            revealInfo: null,
+            votes: {}, // voterId: targetId
+            gameLog: []
+        };
+
+        const app = document.getElementById('app');
+
+        // Helper para pegar apenas jogadores vivos
+        function getAlivePlayers() {
+            return state.players.filter(p => p.hp > 0);
+        }
+
+        function render() {
+            app.innerHTML = '';
+            
+            if (state.revealInfo) {
+                renderReveal();
+                return;
+            }
+
+            switch(state.screen) {
+                case 'MENU': renderMenu(); break;
+                case 'LOBBY': renderLobby(); break;
+                case 'PASS_DEVICE': renderPassDevice(); break;
+                case 'ROUND1_INPUT': renderRound1Input(); break;
+                case 'ROUND2_INPUT': renderRound2Input(); break;
+                case 'ROUND3_DISCUSSION': renderRound3Discussion(); break;
+                case 'VOTING_SECRET': renderVotingSecret(); break;
+                case 'FLASHBACK': renderFlashback(); break;
+                case 'GAME_OVER': renderGameOver(); break;
+            }
+        }
+
+        function renderMenu() {
+            app.innerHTML = `
+                <div class="text-center space-y-8 py-12">
+                    <h1 class="text-7xl md:text-8xl title-font text-red-600 drop-shadow-lg">PARANOIA<br>AVANÇADA</h1>
+                    <p class="text-gray-400 italic">"Alguém recebeu sua pergunta. Descubra quem."</p>
+                    <button onclick="goToLobby()" class="btn-danger px-10 py-4 rounded-full text-xl font-bold uppercase tracking-widest mt-8 shadow-xl">Iniciar Infiltração</button>
+                </div>
+            `;
+        }
+
+        function renderLobby() {
+            app.innerHTML = `
+                <div class="glass-card p-8 space-y-6">
+                    <h2 class="text-2xl font-bold text-center border-b border-white/10 pb-4">Alistamento</h2>
+                    <div class="space-y-3 max-h-60 overflow-y-auto pr-2">
+                        ${state.players.map((p, i) => `
+                            <div class="flex justify-between items-center bg-white/5 p-3 rounded-lg border border-white/5">
+                                <span>${p.name}</span>
+                                <button onclick="removePlayer(${i})" class="text-red-500 hover:text-red-400">Remover</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="flex gap-2">
+                        <input id="playerInput" type="text" placeholder="Nome do Agente" class="flex-1 bg-black/40 border border-white/20 p-3 rounded-lg focus:outline-none focus:border-red-500">
+                        <button onclick="addPlayer()" class="bg-white/10 px-6 py-3 rounded-lg hover:bg-white/20">Add</button>
+                    </div>
+                    <button onclick="startGame()" class="w-full btn-danger py-4 rounded-lg font-bold text-lg ${state.players.length < 3 ? 'opacity-50 cursor-not-allowed' : ''}">
+                        Começar Partida (${state.players.length})
+                    </button>
+                </div>
+            `;
+            setTimeout(() => document.getElementById('playerInput')?.focus(), 0);
+        }
+
+        function renderPassDevice() {
+            const alive = getAlivePlayers();
+            const currentPlayer = alive[state.currentStepPlayerIndex];
+            
+            app.innerHTML = `
+                <div class="pass-device-screen fixed inset-0 flex flex-col items-center justify-center p-6 text-center z-50">
+                    <div class="title-font text-5xl text-red-600 mb-8">PASSE O DISPOSITIVO</div>
+                    <div class="text-3xl font-light mb-12">Privado para: <br><strong class="text-red-500">${currentPlayer.name}</strong></div>
+                    <button onclick="proceedFromPass()" class="bg-white text-black px-12 py-5 rounded-full font-bold text-xl hover:scale-105 transition-transform uppercase">Eu sou ${currentPlayer.name}</button>
+                </div>
+            `;
+        }
+
+        function renderRound1Input() {
+            const alive = getAlivePlayers();
+            const currentPlayer = alive[state.currentStepPlayerIndex];
+            app.innerHTML = `
+                <div class="glass-card p-8 space-y-6 relative">
+                    <div class="hp-indicator">HP: ${currentPlayer.hp}</div>
+                    <h2 class="text-2xl font-bold">Crie uma pergunta, <span class="text-red-500">${currentPlayer.name}</span>:</h2>
+                    <p class="text-gray-400 text-sm">Essa pergunta será enviada para um jogador aleatório.</p>
+                    <textarea id="qInput" rows="4" class="w-full bg-black/40 border border-white/20 p-4 rounded-lg focus:outline-none focus:border-red-500 resize-none" placeholder="O que você quer descobrir?"></textarea>
+                    <button onclick="submitQuestion()" class="w-full btn-danger py-4 rounded-lg font-bold text-lg">Confirmar</button>
+                </div>
+            `;
+        }
+
+        function renderRound2Input() {
+            const alive = getAlivePlayers();
+            const currentPlayer = alive[state.currentStepPlayerIndex];
+            const assignment = state.assignedQuestions.find(a => a.to === currentPlayer.id);
+            app.innerHTML = `
+                <div class="glass-card p-8 space-y-6 relative">
+                    <div class="hp-indicator">HP: ${currentPlayer.hp}</div>
+                    <h2 class="text-xl text-gray-400 italic font-light">Pergunta interceptada:</h2>
+                    <div class="bg-red-900/20 border-l-4 border-red-600 p-6 text-xl text-white">"${assignment.text}"</div>
+                    <textarea id="rInput" rows="4" class="w-full bg-black/40 border border-white/20 p-4 rounded-lg focus:outline-none focus:border-red-500 resize-none" placeholder="Sua resposta estratégica..."></textarea>
+                    
+                    <div class="space-y-4">
+                        <button onclick="transferDuplication()" class="w-full bg-yellow-900/40 border border-yellow-600/50 text-yellow-200 py-3 rounded-lg text-sm transition hover:bg-yellow-900/60">
+                            Acho que sou o DUPLICADO (Passar maldição -1 HP)
+                        </button>
+                        <button onclick="submitResponse()" class="w-full btn-danger py-4 rounded-lg font-bold text-lg">Enviar Resposta</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRound3Discussion() {
+            app.innerHTML = `
+                <div class="glass-card p-6 space-y-6">
+                    <div class="text-center">
+                        <h2 class="text-3xl title-font text-red-600">DISCUSSÃO PÚBLICA</h2>
+                        <p class="text-gray-400 text-xs">Analisem as respostas. O dispositivo deve circular para a votação secreta a seguir.</p>
+                    </div>
+                    <div class="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                        ${state.assignedQuestions.map(a => {
+                            const p = state.players.find(pl => pl.id === a.to);
+                            if (p.hp <= 0) return '';
+                            return `<div class="bg-white/5 p-4 rounded-lg border border-white/10"><div class="text-red-500 font-bold text-xs uppercase">${p.name} respondeu:</div><div class="text-gray-200 italic">"${a.response}"</div></div>`;
+                        }).join('')}
+                    </div>
+                    <button onclick="startSecretVoting()" class="w-full btn-danger py-4 rounded-lg font-bold text-lg">Iniciar Votação Secreta</button>
+                </div>
+            `;
+        }
+
+        function renderVotingSecret() {
+            const alive = getAlivePlayers();
+            const currentPlayer = alive[state.currentStepPlayerIndex];
+            app.innerHTML = `
+                <div class="glass-card p-8 space-y-6 relative">
+                    <div class="hp-indicator">HP: ${currentPlayer.hp}</div>
+                    <h2 class="text-2xl font-bold text-center">Voto Secreto: <span class="text-red-500">${currentPlayer.name}</span></h2>
+                    <p class="text-center text-gray-400 text-sm">Quem você acha que recebeu a mesma pergunta?</p>
+                    <div class="grid grid-cols-1 gap-2">
+                        ${alive.filter(p => p.id !== currentPlayer.id).map(p => `
+                            <button onclick="castVote('${p.id}')" class="bg-white/5 p-4 rounded-lg border border-white/10 text-left hover:bg-red-900/20 transition">
+                                Votar em ${p.name}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderReveal() {
+            const info = state.revealInfo;
+            const isOriginal = info.type === 'original';
+            const isDup = info.isSuccess;
+
+            app.innerHTML = `
+                <div class="fixed inset-0 flex flex-col items-center justify-center p-6 text-center z-[200] ${isOriginal ? 'bg-black' : 'bg-red-950'}">
+                    <div class="text-6xl font-bold mb-6 ${isOriginal ? 'text-gray-600' : 'text-white'}">${info.name}</div>
+                    <div class="text-4xl title-font animate-fade-in-slow ${isOriginal ? 'text-gray-800' : 'text-yellow-500'}">
+                        ${info.type === 'duplicado' ? 'ERA O DUPLICADO!' : info.type === 'novo_duplicado' ? 'NOVA GERAÇÃO DE DUPLICADO!' : 'ERA INOCENTE/ORIGINAL...'}
+                    </div>
+                </div>
+            `;
+
+            if (info.isSuccess) {
+                confetti({ particleCount: 200, spread: 80, origin: { y: 0.6 } });
+            }
+
+            setTimeout(() => {
+                state.revealInfo = null;
+                checkGameState();
+            }, 4500);
+        }
+
+        function renderFlashback() {
+            app.innerHTML = `
+                <div class="glass-card p-8 space-y-8 max-h-[90vh] overflow-y-auto w-full">
+                    <h2 class="text-4xl title-font text-center text-red-600">DOSSIÊ FINAL</h2>
+                    <div id="flashbackContent" class="space-y-12"></div>
+                </div>
+            `;
+            
+            const content = document.getElementById('flashbackContent');
+            
+            state.gameLog.forEach((log) => {
+                const roundDiv = document.createElement('div');
+                roundDiv.className = 'border-b border-white/10 pb-8 animate-fade-in-slow';
+                
+                let qItems = log.assignments.map(a => {
+                    const p = state.players.find(pl => pl.id === a.to);
+                    return `
+                        <div class="flashback-item">
+                            <p class="text-xs text-red-500 font-bold uppercase">${p.name}:</p>
+                            <p class="text-gray-400 italic text-sm">Q: "${a.text}"</p>
+                            <p class="text-white">R: ${a.response}</p>
+                        </div>
+                    `;
+                }).join('');
+
+                const dup = state.players.find(p => p.id === log.duplicateId);
+                const orig = state.players.find(p => p.id === log.originalId);
+
+                roundDiv.innerHTML = `
+                    <h3 class="text-xl font-bold mb-4 text-red-700 uppercase tracking-tighter">Missão ${log.round}</h3>
+                    <div class="space-y-2 mb-6">${qItems}</div>
+                    <div class="bg-white/5 p-4 rounded-lg">
+                        <p class="text-xs text-gray-500 font-bold uppercase mb-2">Revelação de Identidade:</p>
+                        <p class="text-sm">Original: <span class="text-blue-400 font-bold">${orig ? orig.name : 'N/A'}</span></p>
+                        <p class="text-sm">Duplicado: <span class="text-yellow-400 font-bold">${dup ? dup.name : 'N/A'}</span> ${log.wasTransferred ? '(POR PASSE!)' : ''}</p>
+                        <div class="mt-4 pt-4 border-t border-white/10">
+                            <p class="text-xs font-bold text-gray-500 uppercase mb-2">Contagem de Votos:</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                ${Object.entries(log.voteCounts).map(([name, count]) => `
+                                    <div class="flex justify-between items-center bg-black/20 p-2 rounded">
+                                        <span class="text-xs">${name}</span>
+                                        <span class="vote-count-anim">${count}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                content.appendChild(roundDiv);
+            });
+
+            const btn = document.createElement('button');
+            btn.className = 'w-full btn-danger py-4 rounded-lg font-bold text-lg mt-8';
+            btn.innerText = 'ARQUIVAR E REINICIAR';
+            btn.onclick = () => location.reload();
+            content.appendChild(btn);
+        }
+
+        function renderGameOver() {
+            app.innerHTML = `
+                <div class="text-center space-y-8 py-12">
+                    <h1 class="text-6xl title-font text-red-600">FIM DA PARANOIA</h1>
+                    <p class="text-gray-400">A infiltração terminou. Verifique quem sobreviveu.</p>
+                    <button onclick="state.screen = 'FLASHBACK'; render();" class="btn-danger px-10 py-4 rounded-full text-xl font-bold uppercase shadow-lg">Ver Flashback</button>
+                </div>
+            `;
+        }
+
+        // --- Lógica de Transição ---
+
+        function goToLobby() { state.screen = 'LOBBY'; render(); }
+        
+        function addPlayer() {
+            const input = document.getElementById('playerInput');
+            const name = input.value.trim();
+            if (name) {
+                state.players.push({ id: Math.random().toString(36).substr(2, 9), name, hp: 3 });
+                input.value = '';
+                render();
+            }
+        }
+
+        function removePlayer(i) { state.players.splice(i, 1); render(); }
+
+        function startGame() {
+            if (state.players.length < 3) return;
+            state.roundNumber = 1;
+            state.gameLog = [];
+            startRound();
+        }
+
+        function startRound() {
+            state.questions = [];
+            state.assignedQuestions = [];
+            state.votes = {};
+            state.currentStepPlayerIndex = 0;
+            state.screen = 'PASS_DEVICE';
+            render();
+        }
+
+        function proceedFromPass() {
+            const alive = getAlivePlayers();
+            if (state.questions.length < alive.length) {
+                state.screen = 'ROUND1_INPUT';
+            } else if (state.assignedQuestions.some(a => !a.response)) {
+                state.screen = 'ROUND2_INPUT';
+            } else {
+                state.screen = 'VOTING_SECRET';
+            }
+            render();
+        }
+
+        function submitQuestion() {
+            const input = document.getElementById('qInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const alive = getAlivePlayers();
+            state.questions.push({ from: alive[state.currentStepPlayerIndex].id, text });
+            state.currentStepPlayerIndex++;
+
+            if (state.currentStepPlayerIndex >= alive.length) {
+                distributeQuestions();
+                state.currentStepPlayerIndex = 0;
+            }
+            state.screen = 'PASS_DEVICE';
+            render();
+        }
+
+        function distributeQuestions() {
+            const alive = getAlivePlayers();
+            const pool = [...state.questions].sort(() => Math.random() - 0.5);
+            
+            const targetIndices = Array.from({length: alive.length}, (_, i) => i).sort(() => Math.random() - 0.5);
+            state.originalTargetId = alive[targetIndices[0]].id;
+            state.duplicateTargetId = alive[targetIndices[1]].id;
+            state.wasTransferred = false;
+
+            const baseQuestion = pool[0];
+            state.assignedQuestions = [];
+            
+            const others = alive.filter(p => p.id !== state.originalTargetId && p.id !== state.duplicateTargetId);
+            
+            state.assignedQuestions.push({ to: state.originalTargetId, from: baseQuestion.from, text: baseQuestion.text, response: "" });
+            state.assignedQuestions.push({ to: state.duplicateTargetId, from: baseQuestion.from, text: baseQuestion.text, response: "" });
+
+            others.forEach((p, i) => {
+                const q = pool[i + 1] || pool[0];
+                state.assignedQuestions.push({ to: p.id, from: q.from, text: q.text, response: "" });
+            });
+
+            state.assignedQuestions.sort(() => Math.random() - 0.5);
+        }
+
+        function submitResponse() {
+            const input = document.getElementById('rInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const alive = getAlivePlayers();
+            const assignment = state.assignedQuestions.find(a => a.to === alive[state.currentStepPlayerIndex].id);
+            assignment.response = text;
+            state.currentStepPlayerIndex++;
+
+            if (state.currentStepPlayerIndex >= alive.length) {
+                state.screen = 'ROUND3_DISCUSSION';
+            } else {
+                state.screen = 'PASS_DEVICE';
+            }
+            render();
+        }
+
+        function transferDuplication() {
+            const alive = getAlivePlayers();
+            const p = alive[state.currentStepPlayerIndex];
+            p.hp -= 1;
+            
+            if (p.id === state.duplicateTargetId) {
+                const candidates = alive.filter(pl => pl.id !== p.id && pl.id !== state.originalTargetId && pl.hp > 0);
+                if (candidates.length > 0) {
+                    const newDup = candidates[Math.floor(Math.random() * candidates.length)];
+                    state.duplicateTargetId = newDup.id;
+                    state.wasTransferred = true;
+                    
+                    const qBase = state.assignedQuestions.find(a => a.to === state.originalTargetId);
+                    const assignment = state.assignedQuestions.find(a => a.to === newDup.id);
+                    assignment.text = qBase.text;
+                }
+            }
+            submitResponse();
+        }
+
+        function startSecretVoting() {
+            state.currentStepPlayerIndex = 0;
+            state.screen = 'PASS_DEVICE';
+            render();
+        }
+
+        function castVote(targetId) {
+            const alive = getAlivePlayers();
+            const voter = alive[state.currentStepPlayerIndex];
+            state.votes[voter.id] = targetId;
+            state.currentStepPlayerIndex++;
+
+            if (state.currentStepPlayerIndex >= alive.length) {
+                processVotes();
+            } else {
+                state.screen = 'PASS_DEVICE';
+                render();
+            }
+        }
+
+        function processVotes() {
+            const voteCounts = {};
+            state.players.forEach(p => voteCounts[p.name] = 0);
+            
+            Object.values(state.votes).forEach(id => {
+                const p = state.players.find(pl => pl.id === id);
+                voteCounts[p.name]++;
+            });
+
+            // Quem recebeu mais votos (simplificado para o mais votado)
+            let mostVotedId = null;
+            let maxVotes = -1;
+            
+            Object.entries(state.votes).reduce((acc, [voter, target]) => {
+                acc[target] = (acc[target] || 0) + 1;
+                if (acc[target] > maxVotes) {
+                    maxVotes = acc[target];
+                    mostVotedId = target;
+                }
+                return acc;
+            }, {});
+
+            const target = state.players.find(p => p.id === mostVotedId);
+            target.hp -= 1;
+
+            state.gameLog.push({
+                round: state.roundNumber,
+                originalId: state.originalTargetId,
+                duplicateId: state.duplicateTargetId,
+                wasTransferred: state.wasTransferred,
+                assignments: JSON.parse(JSON.stringify(state.assignedQuestions)),
+                voteCounts: voteCounts
+            });
+
+            let type = 'original';
+            let isSuccess = false;
+            if (mostVotedId === state.duplicateTargetId) {
+                type = state.wasTransferred ? 'novo_duplicado' : 'duplicado';
+                isSuccess = true;
+            }
+
+            state.revealInfo = { name: target.name, type, isSuccess };
+            render();
+        }
+
+        function checkGameState() {
+            const alive = getAlivePlayers();
+            if (alive.length <= 2) {
+                state.screen = 'GAME_OVER';
+            } else {
+                state.roundNumber++;
+                startRound();
+            }
+            render();
+        }
+
+        render();
+    </script>
+</body>
+</html>
